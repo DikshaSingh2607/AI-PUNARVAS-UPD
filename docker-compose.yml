@@ -1,0 +1,100 @@
+version: "3.9"
+
+services:
+  # ─────────────────────────────────────────
+  # PostgreSQL + PostGIS Database
+  # ─────────────────────────────────────────
+  db:
+    image: postgis/postgis:15-3.3
+    container_name: punarvas_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: punarvas
+      POSTGRES_USER: punarvas
+      POSTGRES_PASSWORD: punarvas123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U punarvas -d punarvas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - punarvas_net
+
+  # ─────────────────────────────────────────
+  # FastAPI Backend
+  # ─────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: punarvas_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://punarvas:punarvas123@db:5432/punarvas
+      SECRET_KEY: punarvas_disaster_relocation_super_secret_key_2026_ndma
+      ENVIRONMENT: development
+      DEBUG: "true"
+      AUTO_SEED_ON_STARTUP: "true"
+      AUTO_CREATE_TABLES: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    networks:
+      - punarvas_net
+
+  # ─────────────────────────────────────────
+  # Next.js / Vite Frontend
+  # ─────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: punarvas_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3001:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - punarvas_net
+
+  # ─────────────────────────────────────────
+  # Nginx Reverse Proxy
+  # ─────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: punarvas_nginx
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "8088:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - punarvas_net
+
+# ─────────────────────────────────────────
+# Named Volumes
+# ─────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+
+# ─────────────────────────────────────────
+# Networks
+# ─────────────────────────────────────────
+networks:
+  punarvas_net:
+    driver: bridge
